@@ -45,16 +45,107 @@ docker ps --format '{{.Names}}\t{{.Ports}}' | grep -E 'memos|qdrant|neo4j'
 
 ---
 
-## 3. 部署 MemOS 与依赖组件（Docker）
+## 3. 部署 MemOS 与依赖组件（Docker，从零开始）
 
 > 你当前环境已验证过：
 > - `memos-api-docker` 在 `18000` 对外服务
 > - `qdrant` 在 `6333`
 > - `neo4j-docker` 在 `7474`
+>
+> 下面给的是可直接复用的“从零部署”步骤。
 
-如果你是从零部署，建议先确保三个容器都能稳定运行，并设置重启策略（如 `unless-stopped`）。
+### 3.1 创建部署目录
 
-验证 MemOS API 连通性（示例）：
+```bash
+mkdir -p ~/memos-stack
+cd ~/memos-stack
+```
+
+### 3.2 准备 `.env`（容器参数）
+
+在 `~/memos-stack/.env` 写入（按需改密码）：
+
+```env
+# 端口映射
+MEMOS_PORT=18000
+QDRANT_PORT=6333
+NEO4J_HTTP_PORT=7474
+NEO4J_BOLT_PORT=7687
+
+# 凭据（示例）
+NEO4J_AUTH=neo4j/12345678
+MEMOS_API_KEY=dummy
+```
+
+> 提示：
+> - 生产环境不要用 `dummy`；请改成真实随机 Token。
+> - 如果机器上已有同端口服务，请改端口映射。
+
+### 3.3 创建 `docker-compose.yml`
+
+在 `~/memos-stack/docker-compose.yml` 写入：
+
+```yaml
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_PORT}:6333"
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+
+  neo4j:
+    image: neo4j:5
+    container_name: neo4j-docker
+    restart: unless-stopped
+    environment:
+      - NEO4J_AUTH=${NEO4J_AUTH}
+    ports:
+      - "${NEO4J_HTTP_PORT}:7474"
+      - "${NEO4J_BOLT_PORT}:7687"
+    volumes:
+      - ./data/neo4j/data:/data
+      - ./data/neo4j/logs:/logs
+
+  memos-api:
+    # 按你实际使用的镜像名替换（本示例用通用占位）
+    image: memos-api:latest
+    container_name: memos-api-docker
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+      - neo4j
+    environment:
+      # 以下变量名请以你使用的 MemOS 镜像文档为准
+      - MEMOS_API_KEY=${MEMOS_API_KEY}
+      - QDRANT_URL=http://qdrant:6333
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=${NEO4J_AUTH#neo4j/}
+    ports:
+      - "${MEMOS_PORT}:8000"
+```
+
+### 3.4 启动服务
+
+```bash
+docker compose up -d
+```
+
+### 3.5 检查服务状态
+
+```bash
+docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E 'memos|qdrant|neo4j'
+```
+
+期望看到（名称可不同）：
+- `memos-api-docker`
+- `qdrant`
+- `neo4j-docker`
+
+### 3.6 首次连通验证（MemOS API）
 
 ```bash
 curl -X POST 'http://localhost:18000/product/search' \
@@ -72,7 +163,22 @@ curl -X POST 'http://localhost:18000/product/search' \
   }'
 ```
 
-若返回 `code:200`，表示 API 可用。
+若返回 `code:200`，表示 API 已可用。
+
+### 3.7 开机自启
+
+由于已配置 `restart: unless-stopped`，宿主机重启后容器会自动拉起。
+
+---
+
+### 3.8 已知兼容性提醒（非常重要）
+
+历史实践中出现过：
+- 云版 `MemOS-Cloud-OpenClaw-Plugin` 与本地 Docker 版 MemOS 在 API 路径/参数上不完全一致。
+
+建议：
+- 以你本地实例 API 实测行为为准；
+- 插件里重点确认 `search` 和 `add` 的接口路径、参数格式，尤其是 `async_mode`。
 
 ---
 
