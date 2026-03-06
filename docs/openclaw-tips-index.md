@@ -12,6 +12,7 @@
 ## 2) 故障排查
 
 - [OpenClaw + MemOS 故障排查速查表](./troubleshooting.md)
+- [MemOS 记忆存储失败排查与修复指南](./memos-storage-fix-guide.md)
 
 ## 3) 建议新增专题
 
